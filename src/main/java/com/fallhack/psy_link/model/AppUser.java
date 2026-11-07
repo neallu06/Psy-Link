@@ -37,4 +37,10 @@ public class AppUser {
     public String getPasswordHash() { return passwordHash; }
     public String getTheme() { return theme; }
     public void setTheme(String theme) { this.theme = theme; }
+
+    /** The idea space the user opened most recently; it is where they land after logging in. */
+    private Long lastSpaceId;
+
+    public Long getLastSpaceId() { return lastSpaceId; }
+    public void setLastSpaceId(Long lastSpaceId) { this.lastSpaceId = lastSpaceId; }
 }

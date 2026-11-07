@@ -8,6 +8,9 @@ target/
 .env
 application.properties
 
+### data db ### 
+data/
+
 ### STS ###
 .apt_generated
 .classpath

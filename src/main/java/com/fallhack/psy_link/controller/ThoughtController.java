@@ -13,6 +13,8 @@ import com.fallhack.psy_link.repo.ThoughtRepository;
 import com.fallhack.psy_link.repo.ThoughtVersionRepository;
 import com.fallhack.psy_link.repo.UserRepository;
 import com.fallhack.psy_link.service.GeminiService;
+import com.fallhack.psy_link.service.SnapshotService;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +42,9 @@ public class ThoughtController {
     public record LinkUpdate(Long typeId) {}
     public record TypeUpdate(String color, Boolean dotted) {}
     public record NewType(String name, String color, Boolean dotted) {}
+    public record RecentView(Long id, String title, Long spaceId, String spaceName) {}
+    public record BringRequest(Long thoughtId, Long intoSpaceId, Long relatedToId, Long typeId, String label) {}
+    public record Brought(Thought thought, ThoughtLink link) {}
 
     private final UserRepository users;
     private final IdeaSpaceRepository spaces;
@@ -47,10 +53,12 @@ public class ThoughtController {
     private final LinkTypeRepository types;
     private final ThoughtVersionRepository versions;
     private final GeminiService gemini;
+    private final SnapshotService snapshotService;
 
     public ThoughtController(UserRepository users, IdeaSpaceRepository spaces, ThoughtRepository thoughts,
                              ThoughtLinkRepository links, LinkTypeRepository types,
-                             ThoughtVersionRepository versions, GeminiService gemini) {
+                             ThoughtVersionRepository versions, GeminiService gemini,
+                             SnapshotService snapshotService) {
         this.users = users;
         this.spaces = spaces;
         this.thoughts = thoughts;
@@ -58,6 +66,7 @@ public class ThoughtController {
         this.types = types;
         this.versions = versions;
         this.gemini = gemini;
+        this.snapshotService = snapshotService;
     }
 
     // ---------- ownership helpers: every lookup is scoped to the logged-in user ----------
@@ -120,6 +129,7 @@ public class ThoughtController {
         for (Thought t : thoughts.findBySpaceId(s.getId())) {
             deleteThoughtAndLinks(t.getId());
         }
+        snapshotService.deleteAllForSpace(s.getId());
         spaces.delete(s);
         return ResponseEntity.noContent().build();
     }
@@ -135,26 +145,87 @@ public class ThoughtController {
         return thoughts.findBySpaceId(space(spaceId, me(p)).getId());
     }
 
+    /**
+     * A short idea (a handful of words, one line) is used as the topic on the box exactly as typed.
+     * A longer one gets an AI-written topic. Either way the user's own words are kept as the detail.
+     */
+    static boolean isShortTopic(String text) {
+        return text.length() <= 40 && !text.contains("\n") && text.split("\\s+").length <= 6;
+    }
+
     @PostMapping("/thoughts")
     public Thought createThought(Principal p, @RequestBody NewThought body) {
         IdeaSpace s = space(body.spaceId(), me(p));
+        String text = body.text() == null ? "" : body.text().trim();
+        if (text.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Write a thought first.");
+        boolean shortTopic = isShortTopic(text);
+
         Thought t = new Thought();
-        t.setText(body.text());
+        t.setText(text);
         t.setSpaceId(s.getId());
         try {
-            GeminiService.Analysis a = gemini.analyze(body.text());
-            t.setTitle(a.title().isBlank() ? fallbackTitle(body.text()) : a.title());
+            GeminiService.Analysis a = gemini.analyze(text);
+            t.setTitle(shortTopic ? text : (a.title().isBlank() ? fallbackTitle(text) : a.title()));
             t.setCategory(a.category());
             t.setTags(a.tags());
             t.setSummary(a.summary());
         } catch (Exception e) {
             // Never lose a thought because the AI call failed.
-            t.setTitle(fallbackTitle(body.text()));
+            t.setTitle(shortTopic ? text : fallbackTitle(text));
             t.setCategory("Uncategorized");
         }
         Thought saved = thoughts.save(t);
         versions.save(new ThoughtVersion(saved.getId(), saved.getTitle(), saved.getText(), saved.getCategory(), "Created"));
         return saved;
+    }
+
+    // ---------- Recents (global or one space) ----------
+
+    @GetMapping("/recent")
+    public List<RecentView> recent(Principal p, @RequestParam(required = false) Long spaceId,
+                                   @RequestParam(defaultValue = "8") int limit) {
+        AppUser u = me(p);
+        List<IdeaSpace> mine = spaceId == null ? spaces.findByOwnerId(u.getId()) : List.of(space(spaceId, u));
+        if (mine.isEmpty()) return List.of();
+        Map<Long, String> names = new LinkedHashMap<>();
+        mine.forEach(s -> names.put(s.getId(), s.getName()));
+        int n = Math.max(1, Math.min(limit, 20));
+        return thoughts.findBySpaceIdInOrderByIdDesc(names.keySet(), PageRequest.of(0, n)).stream()
+                .map(t -> new RecentView(t.getId(),
+                        t.getTitle() == null || t.getTitle().isBlank() ? clip(t.getText(), 24) : t.getTitle(),
+                        t.getSpaceId(), names.get(t.getSpaceId())))
+                .toList();
+    }
+
+    /**
+     * Copies a thought from another space into this one and links the copy to a related thought here.
+     * Used when the user accepts one of Psy's suggested bridges between spaces. The original is untouched.
+     */
+    @PostMapping("/thoughts/bring")
+    @Transactional
+    public Brought bring(Principal p, @RequestBody BringRequest body) {
+        AppUser u = me(p);
+        Thought src = thought(body.thoughtId(), u);
+        IdeaSpace target = space(body.intoSpaceId(), u);
+        Thought related = thought(body.relatedToId(), u);
+        type(body.typeId(), u);
+        if (!target.getId().equals(related.getSpaceId())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        if (target.getId().equals(src.getSpaceId())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+
+        Thought c = new Thought();
+        c.setTitle(src.getTitle());
+        c.setText(src.getText());
+        c.setCategory(src.getCategory());
+        c.setTags(src.getTags());
+        c.setSummary(src.getSummary());
+        c.setSpaceId(target.getId());
+        c = thoughts.save(c);
+        IdeaSpace from = space(src.getSpaceId(), u);
+        versions.save(new ThoughtVersion(c.getId(), c.getTitle(), c.getText(), c.getCategory(), "Brought from " + from.getName()));
+
+        String label = body.label() == null || body.label().isBlank() ? null : clip(body.label().trim(), 200);
+        ThoughtLink l = links.save(new ThoughtLink(c.getId(), related.getId(), body.typeId(), label, true));
+        return new Brought(c, l);
     }
 
     private static String fallbackTitle(String text) {

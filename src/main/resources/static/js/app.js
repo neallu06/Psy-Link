@@ -106,6 +106,8 @@ const network = new vis.Network($('network'), { nodes, edges }, {
   interaction: { hover:true, dragNodes:true }
 });
 
+network.on('beforeDrawing', ctx => { ctx.lineCap = 'butt'; });   // flat dash ends = sharp dots
+
 function themeOptions(theme) {
   const d = theme === 'dark';
   return { nodes: {
@@ -150,7 +152,7 @@ const edgeOf = l => {
   const ty = typesById[l.typeId] || { color:'#888', name:'', dotted:false };
   return { id:l.id, from:l.fromId, to:l.toId, typeId:l.typeId,
     color:{ color:ty.color, highlight:ty.color, hover:ty.color },
-    dashes: ty.dotted ? [2, 7] : false,
+    dashes: ty.dotted ? [3, 6] : false,           // square, hard-edged dots
     title: ty.name + (l.label ? ': ' + l.label : '') };
 };
 
@@ -184,7 +186,7 @@ function renderTypes() {
     const row = document.createElement('div');
     row.className = 'type' + (t.id === activeTypeId ? ' active' : '');
     row.title = t.description || '';
-    row.innerHTML = `<span class="swatch" style="border-top-style:${t.dotted ? 'dotted' : 'solid'};border-color:${esc(t.color)}"></span>
+    row.innerHTML = `<span class="swatch${t.dotted ? ' dotted' : ''}" style="--c:${esc(t.color)}"></span>
       <span class="name">${esc(t.name)}</span>
       <input type="color" value="${esc(t.color)}" title="Color">
       <label title="Dotted line"><input type="checkbox" ${t.dotted ? 'checked' : ''}>dot</label>`;
@@ -262,7 +264,10 @@ async function openSpace(id) {
   const s = spacesList.find(x => x.id == id);
   $('spaceName').textContent = s ? s.name : '';
   $('home').style.display = 'none'; $('workspace').style.display = 'flex';
+  document.body.classList.add('in-space');
   network.setSize('100%', '100%'); network.redraw();
+  api('/me/last-space', 'PUT', { spaceId:id }).catch(() => {});      // next login lands here
+  if (me) me.lastSpaceId = id;
   await loadGraph();
 }
 $('homeBtn').onclick = guard(goHome);
@@ -273,8 +278,85 @@ async function loadGraph() {
   const [ts, ls] = await Promise.all([api('/thoughts?spaceId=' + spaceId), api('/links?spaceId=' + spaceId)]);
   placeMissing(ts);
   nodes.add(ts.map(nodeOf)); edges.add(ls.map(edgeOf));
-  renderPins(); focusSpace();
+  renderPins(); focusSpace(); loadRecents();
 }
+
+/* ---- Recents: newest ideas, either from every space (global) or from this one ---- */
+let recentScope = 'space';
+async function loadRecents() {
+  if (view !== 'space') return;
+  const url = recentScope === 'global' ? '/recent?limit=8' : '/recent?limit=8&spaceId=' + spaceId;
+  let rs = [];
+  try { rs = await api(url); } catch (e) { return; }
+  const box = $('recentList'); box.innerHTML = '';
+  if (!rs.length) {
+    const m = document.createElement('div'); m.className = 'muted';
+    m.textContent = recentScope === 'global' ? 'No ideas yet in any space.' : 'No ideas in this space yet.';
+    box.appendChild(m); return;
+  }
+  rs.forEach(r => {
+    const d = document.createElement('div'); d.className = 'recentitem'; d.textContent = r.title;
+    if (recentScope === 'global') {
+      const sp = document.createElement('span'); sp.className = 'rsp'; sp.textContent = r.spaceName; d.appendChild(sp);
+    }
+    d.onclick = guard(() => focusThought(r.id, r.spaceId));
+    box.appendChild(d);
+  });
+}
+async function focusThought(thoughtId, thoughtSpaceId) {
+  if (view !== 'space' || String(spaceId) !== String(thoughtSpaceId)) await openSpace(thoughtSpaceId);
+  if (nodes.get(thoughtId)) {
+    network.selectNodes([thoughtId]);
+    network.focus(thoughtId, { scale:Math.max(network.getScale(), 0.8), animation:{ duration:400 } });
+    syncFixed();
+  }
+}
+function setRecentScope(s) {
+  recentScope = s;
+  $('recSpace').classList.toggle('on', s === 'space'); $('recGlobal').classList.toggle('on', s === 'global');
+  loadRecents();
+}
+$('recSpace').onclick = () => setRecentScope('space');
+$('recGlobal').onclick = () => setRecentScope('global');
+
+/* ---- Graph history: snapshots ---- */
+function closeSnaps() { $('snapWrap').style.display = 'none'; }
+async function loadSnaps() {
+  const list = await api(`/spaces/${spaceId}/snapshots`);
+  const box = $('snapList'); box.innerHTML = '';
+  if (!list.length) {
+    const m = document.createElement('div'); m.className = 'muted'; m.textContent = 'No snapshots yet. Save one whenever you like the shape your ideas have taken.';
+    box.appendChild(m); return;
+  }
+  list.forEach(s => {
+    const row = document.createElement('div'); row.className = 'snaprow';
+    const info = document.createElement('div'); info.className = 'sinfo';
+    const nm = document.createElement('div'); nm.className = 'sname'; nm.textContent = s.label; nm.title = s.label;
+    const meta = document.createElement('div'); meta.className = 'smeta';
+    meta.textContent = `${new Date(s.createdAt).toLocaleString()} · ${s.thoughtCount} thoughts · ${s.linkCount} connections`;
+    info.append(nm, meta);
+    const restore = document.createElement('button'); restore.className = 'ghost'; restore.textContent = 'Restore';
+    restore.onclick = guard(async () => {
+      if (!(await confirmBox(`Restore “${s.label}”? Your current graph is saved as a snapshot first, so you can undo this.`, 'Restore'))) return;
+      await api('/snapshots/' + s.id + '/restore', 'POST');
+      closeSnaps(); await loadGraph();
+    });
+    const del = document.createElement('button'); del.className = 'ghost'; del.textContent = '✕'; del.title = 'Delete snapshot';
+    del.onclick = guard(async () => {
+      if (!(await confirmBox(`Delete the snapshot “${s.label}”?`))) return;
+      await api('/snapshots/' + s.id, 'DELETE'); await loadSnaps();
+    });
+    row.append(info, restore, del); box.appendChild(row);
+  });
+}
+$('snapBtn').onclick = guard(async () => { $('snapWrap').style.display = 'flex'; await loadSnaps(); });
+$('snapClose').onclick = closeSnaps;
+$('snapWrap').onclick = e => { if (e.target === $('snapWrap')) closeSnaps(); };
+$('snapSave').onclick = busy($('snapSave'), async () => {
+  await api(`/spaces/${spaceId}/snapshots`, 'POST', { label:$('snapLabel').value.trim() });
+  $('snapLabel').value = ''; await loadSnaps();
+});
+$('snapLabel').onkeydown = e => { if (e.key === 'Enter') $('snapSave').click(); };
 /* Same visible size every time a space opens, centered on the thoughts. The user zooms from there. */
 function focusSpace() {
   const ps = Object.values(thoughtsById).filter(t => t.x != null);
@@ -431,7 +513,7 @@ $('mDelete').onclick = busy($('mDelete'), async () => {
   if (!(await confirmBox('Delete this thought?'))) return;
   await api('/thoughts/' + openId, 'DELETE');
   edges.get().filter(e => e.from === openId || e.to === openId).forEach(e => edges.remove(e.id));
-  nodes.remove(openId); delete thoughtsById[openId]; openId = null; closeModal(); renderPins();
+  nodes.remove(openId); delete thoughtsById[openId]; openId = null; closeModal(); renderPins(); loadRecents();
 });
 $('mConnect').onclick = () => {
   connectFrom = openId; closeModal();
@@ -457,15 +539,19 @@ $('mHist').onclick = guard(async () => {
 });
 
 /* ---- Sidebar: new thought ---- */
-$('addThought').onclick = busy($('addThought'), async () => {
-  const text = $('thoughtText').value.trim(); if (!text) return;
-  const t = await api('/thoughts', 'POST', { text, spaceId:Number(spaceId) });
-  $('thoughtText').value = '';
+/* Puts a new thought on an empty spot near the middle of what the user is looking at. */
+function addNodeAtFreeSpot(t) {
   const pts = Object.values(thoughtsById).filter(x => x.x != null);
   const s = freeSpot(network.getViewPosition(), pts);
   t.x = s.x; t.y = s.y;
   api('/thoughts/' + t.id, 'PUT', { x:s.x, y:s.y }).catch(() => {});
   nodes.add(nodeOf(t));
+}
+$('addThought').onclick = busy($('addThought'), async () => {
+  const text = $('thoughtText').value.trim(); if (!text) return;
+  const t = await api('/thoughts', 'POST', { text, spaceId:Number(spaceId) });
+  $('thoughtText').value = '';
+  addNodeAtFreeSpot(t); loadRecents();
 });
 $('thoughtText').onkeydown = e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('addThought').click(); }
@@ -474,7 +560,9 @@ $('toggleSide').onclick = () => $('sidebar').classList.toggle('collapsed');
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (warnDone) warnDone(false); else if ($('modalWrap').style.display === 'flex') closeModal();
+  if (warnDone) warnDone(false);
+  else if ($('snapWrap').style.display === 'flex') closeSnaps();
+  else if ($('modalWrap').style.display === 'flex') closeModal();
 });
 
 /* ---------------- Psy ---------------- */
@@ -507,6 +595,21 @@ function actionRow(a, container) {
       const l = await api('/links', 'POST', { fromId:a.fromId, toId:a.toId, typeId:a.typeId, label:a.reason, aiSuggested:true });
       if (view === 'space' && nodes.get(a.fromId) && nodes.get(a.toId)) edges.add(edgeOf(l));
     };
+  } else if (a.kind === 'open') {
+    /* A search hit: opens the idea space it lives in and highlights the thought. Can be clicked again. */
+    label.textContent = `${a.fromTitle} · ${a.spaceName}${a.reason ? ' — ' + a.reason : ''}`; btn.textContent = 'Open';
+    btn.apply = async () => {
+      if ($('psy').className === 'full') psyState('open');
+      await focusThought(a.thoughtId, a.spaceId);
+    };
+    btn.reusable = true;
+  } else if (a.kind === 'bridge') {
+    /* A suggested bridge: copy the other space's thought into this space and link it. */
+    label.textContent = `Bring “${a.fromTitle}” (from ${a.spaceName}) next to “${a.toTitle}”: ${a.reason}`; btn.textContent = 'Bring over';
+    btn.apply = async () => {
+      const r = await api('/thoughts/bring', 'POST', { thoughtId:a.fromId, intoSpaceId:a.spaceId, relatedToId:a.toId, typeId:a.typeId, label:a.reason });
+      if (view === 'space' && String(spaceId) === String(a.spaceId)) { addNodeAtFreeSpot(r.thought); edges.add(edgeOf(r.link)); loadRecents(); }
+    };
   } else {
     label.textContent = `${a.fromTitle} → ${a.category}`; btn.textContent = 'Apply';
     btn.apply = async () => {
@@ -514,10 +617,14 @@ function actionRow(a, container) {
       if (thoughtsById[a.thoughtId]) thoughtsById[a.thoughtId].category = t.category;
     };
   }
+  const idle = btn.textContent;
   btn.onclick = async () => {
     btn.disabled = true;
-    try { await btn.apply(); btn.textContent = 'Added'; row.style.opacity = .6; }
-    catch (e) { btn.disabled = false; if (!e.silent) await warn(e.message); }
+    try {
+      await btn.apply();
+      if (btn.reusable) btn.disabled = false;
+      else { btn.textContent = 'Added'; row.style.opacity = .6; }
+    } catch (e) { btn.disabled = false; btn.textContent = idle; if (!e.silent) await warn(e.message); }
   };
   row.append(label, btn); container.appendChild(row);
   return btn;
@@ -527,9 +634,10 @@ function renderPsyReply(r) {
   if (r.actions && r.actions.length) {
     const box = document.createElement('div'); box.className = 'acts';
     const btns = r.actions.map(a => actionRow(a, box));
-    if (btns.length > 1) {
+    const addable = btns.filter(b => !b.reusable);          // search results are opened one at a time
+    if (addable.length > 1) {
       const all = document.createElement('button'); all.className = 'ghost'; all.textContent = 'Add all';
-      all.onclick = async () => { for (const b of btns) if (!b.disabled) await b.onclick(); };
+      all.onclick = async () => { for (const b of addable) if (!b.disabled) await b.onclick(); };
       box.appendChild(all);
     }
     $('psyLog').appendChild(box);
@@ -558,18 +666,30 @@ async function psySend() {
 $('psySend').onclick = psySend;
 $('psyInput').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); psySend(); } };
 
-function greetPsy() {
+function greetPsy(isNew) {
   if (psyGreeted) return; psyGreeted = true;
-  addMsg('ai', "Hi, I'm Psy! What are you thinking about today? Walk me through your amazing ideas and let's start explore them together! (^-^)/");
+  addMsg('ai', isNew
+    ? "Welcome to Psy-Link! I'm Psy, and I'm so glad you're here. ✨ This blank space is all yours: write down anything on your mind, a big idea or a tiny spark, in the box at the bottom left. I'll be right here if you want to chat about it. What are you thinking about today?"
+    : "Hi, I'm Psy! What are you thinking about today? Walk me through your amazing ideas and let's start explore them together! (^-^)/");
 }
 
 /* ---------------- Boot ---------------- */
+/* After login you land in the idea space you opened last. A brand-new user lands in their blank first
+   space with Psy open and welcoming them (they can close or minimize the chat whenever they like). */
 async function boot() {
   const r = await fetch('/api/me');
   if (r.status !== 200) { showAuth(); return; }
   me = await r.json();
   applyTheme(me.theme || 'dark'); $('uname').textContent = me.username;
   $('auth').style.display = 'none'; $('app').style.display = 'block';
-  await loadTypes(); await goHome(); greetPsy();
+  await loadTypes();
+
+  spacesList = await api('/spaces');
+  const total = spacesList.reduce((n, s) => n + s.thoughtCount, 0);
+  const isNew = !me.lastSpaceId && total === 0;
+  const landing = spacesList.find(s => s.id === me.lastSpaceId) || spacesList[0];
+  if (landing) await openSpace(landing.id); else await goHome();
+  greetPsy(isNew);
+  if (isNew) psyState('open');
 }
 boot();

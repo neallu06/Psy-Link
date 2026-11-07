@@ -52,52 +52,69 @@
   <!-- Workspace: one idea space -->
   <div id="workspace">
     <aside id="sidebar">
-      <div id="sideScroll">
+      <div id="sideHead">
         <div class="sidehead">
           <button class="ghost" id="homeBtn" title="Back to all idea spaces">🏠</button>
           <h1 class="brand">Psy-Link</h1>
         </div>
         <div id="spaceName" class="spacename"></div>
+      </div>
 
-        <section>
-          <h2>New thought</h2>
-          <textarea id="thoughtText" placeholder="Tell me your idea..."></textarea>
-          <button id="addThought" style="margin-top:6px;width:100%">Add thoughts</button>
-        </section>
+      <!-- Scrolls: Pins, Recents, Connections -->
+      <div id="sideScroll">
+        <details id="pinsBox" open>
+          <summary class="sec-title">Pins <span id="pinCount"></span></summary>
+          <div id="pinList"></div>
+        </details>
 
-        <section>
-          <details id="pinsBox">
-            <summary>Pins <span id="pinCount" class="muted"></span></summary>
-            <div id="pinList"></div>
-          </details>
-        </section>
+        <details id="recentBox" open>
+          <summary class="sec-title">Recents</summary>
+          <div class="seg">
+            <button type="button" id="recSpace" class="on">This space</button>
+            <button type="button" id="recGlobal">Global</button>
+          </div>
+          <div id="recentList"></div>
+        </details>
 
-        <section>
-          <h2>Connections</h2>
+        <details id="connBox" open>
+          <summary class="sec-title">Connections</summary>
           <div id="types"></div>
           <div id="newType">
             <div class="row"><input type="text" id="ntName" placeholder="New connection name" maxlength="40"><input type="color" id="ntColor" value="#8a7bff" title="Color"></div>
             <div class="row"><label class="chk"><input type="checkbox" id="ntDotted"> dotted line</label><button id="ntAdd" style="margin-left:auto">Add connection</button></div>
           </div>
           <p class="muted">Select a type, then open a thought and press “Connect to…”. Change a color or switch solid/dotted any time.</p>
-        </section>
+        </details>
+      </div>
+
+      <!-- Fixed to the bottom of the sidebar: never scrolls away -->
+      <div id="newThought">
+        <h2 class="sec-title">New thought</h2>
+        <textarea id="thoughtText" placeholder="Tell me your idea..."></textarea>
+        <button id="addThought">Add thoughts</button>
       </div>
     </aside>
 
     <main>
       <button id="toggleSide" title="Show/hide sidebar">☰</button>
+      <button id="snapBtn" title="Save and restore versions of this whole graph">🕘 Snapshots</button>
       <div id="hint"></div>
-      <div id="edgebar">
-        <span class="muted">Connection</span><select id="edgeType"></select>
-        <button class="danger" id="edgeDel">Delete</button><button class="ghost" id="edgeClose">✕</button>
-      </div>
       <div id="network"></div>
       <button id="pinHover" title="Pin this thought"></button>
-      <div id="zoom">
-        <button class="ghost" id="zOut" title="Zoom out">−</button>
-        <input type="range" id="zRange" min="0.3" max="3" step="0.05" value="1">
-        <button class="ghost" id="zIn" title="Zoom in">+</button>
-        <span id="zPct">100%</span>
+
+      <!-- Bottom dock: the connection box and the zoom box share one row, and the dock moves
+           away from Psy, so neither one can ever sit under the chat. -->
+      <div id="dock">
+        <div id="edgebar">
+          <span class="muted">Connection</span><select id="edgeType"></select>
+          <button class="danger" id="edgeDel">Delete</button><button class="ghost" id="edgeClose">✕</button>
+        </div>
+        <div id="zoom">
+          <button class="ghost" id="zOut" title="Zoom out">−</button>
+          <input type="range" id="zRange" min="0.3" max="3" step="0.05" value="1">
+          <button class="ghost" id="zIn" title="Zoom in">+</button>
+          <span id="zPct">100%</span>
+        </div>
       </div>
     </main>
   </div>
@@ -133,6 +150,16 @@
       <button class="danger" id="mDelete">Delete</button>
       <button class="ghost" id="mClose">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Graph history: snapshots of the whole idea space -->
+<div id="snapWrap">
+  <div id="snap">
+    <div class="row"><h2 class="sec-title" style="margin:0;flex:1">Graph history</h2><button class="ghost" id="snapClose" title="Close">✕</button></div>
+    <p class="muted">A snapshot saves every thought, its position and pin, and every connection in this space. Restoring brings that graph back. Your current graph is saved first, so you can always undo.</p>
+    <div class="row"><input type="text" id="snapLabel" placeholder="Snapshot name (optional)" maxlength="60"><button id="snapSave">Save snapshot</button></div>
+    <div id="snapList"></div>
   </div>
 </div>
 

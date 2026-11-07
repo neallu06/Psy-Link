@@ -4,11 +4,15 @@ import com.fallhack.psy_link.model.Thought;
 import com.fallhack.psy_link.model.ThoughtVersion;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -16,16 +20,30 @@ import java.util.regex.Pattern;
 @Service
 public class GeminiService {
 
+    private static final Logger log = LoggerFactory.getLogger(GeminiService.class);
+
     public record Analysis(String title, String category, String tags, String summary) {}
     public record SuggestedLink(Long fromId, Long toId, String typeKey, String reason) {}
     public record SuggestedCategory(Long thoughtId, String category) {}
+    public record SearchHit(Long thoughtId, String reason) {}
+    public record Bridge(Long aId, Long bId, String reason) {}
     public record Turn(String role, String text) {}
     public record Intent(String kind, List<String> args) {
         public String arg(int i) { return i < args.size() ? args.get(i) : ""; }
     }
 
-    private static final Set<String> KINDS =
-            Set.of("CHAT", "LINKS", "CATEGORIES", "ANALYZE", "PERSPECTIVE", "MERGE", "HISTORY");
+    private static final Set<String> KINDS = Set.of("CHAT", "LINKS", "CATEGORIES", "ANALYZE", "PERSPECTIVE",
+            "MERGE", "HISTORY", "SEARCH", "PATTERNS", "PROMPTS", "BRIDGES", "SNAPSHOT");
+
+    /**
+     * Words that can signal a request for one of Psy's actions. Ordinary conversation almost never contains
+     * them, so it skips the routing call entirely: one Gemini call per chat message instead of two.
+     */
+    private static final List<String> ACTION_WORDS = List.of(
+            "connect", "link", "relat", "categor", "analy", "summar", "perspective", "viewpoint", "point of view",
+            "lens", "merge", "combine", "history", "develop", "evolv", "changed", "search", "find", "look for",
+            "where did i", "pattern", "how do i think", "my thinking", "question", "prompt", "explor", "bridge",
+            "snapshot", "theme", "suggest", "between");
 
     private static final Pattern LINK_LINE =
             Pattern.compile("(\\d+)\\s*-\\s*(\\d+)\\s*\\|\\s*(\\w+)\\s*\\|\\s*(.+)");
@@ -44,16 +62,66 @@ public class GeminiService {
 
     private final Client client;
     private final String model;
+    private final String fallbackModel;
 
-    public GeminiService(Client client, @Value("${gemini.model}") String model) {
+    public GeminiService(Client client, @Value("${gemini.model}") String model,
+                         @Value("${gemini.fallback-model:gemini-2.5-flash-lite}") String fallbackModel) {
         this.client = client;
         this.model = model;
+        this.fallbackModel = fallbackModel;
     }
 
+    /** Calls Gemini. If the main model is rate-limited or overloaded, retries once on the fallback model. */
     private String call(String prompt) {
-        GenerateContentResponse response = client.models.generateContent(model, prompt, null);
+        try {
+            return generate(model, prompt);
+        } catch (RuntimeException e) {
+            boolean retryable = isRateLimited(e) || isOverloaded(e);
+            log.warn("Gemini call failed on {} ({}){}", model, e.getMessage(), retryable ? "; trying " + fallbackModel : "");
+            if (!retryable || fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) throw e;
+            return generate(fallbackModel, prompt);
+        }
+    }
+
+    private String generate(String modelName, String prompt) {
+        GenerateContentResponse response = client.models.generateContent(modelName, prompt, null);
         String text = response.text();
         return text == null ? "" : text.trim();
+    }
+
+    // ------------------------------------------------------------------ error diagnosis
+
+    private static String allMessages(Throwable e) {
+        StringBuilder sb = new StringBuilder();
+        for (Throwable t = e; t != null && sb.length() < 2000; t = t.getCause()) sb.append(t.getMessage()).append(' ');
+        return sb.toString().toLowerCase(Locale.ROOT);
+    }
+    static boolean isRateLimited(Throwable e) {
+        String m = allMessages(e);
+        return m.contains("429") || m.contains("resource_exhausted") || m.contains("quota") || m.contains("rate limit");
+    }
+    static boolean isOverloaded(Throwable e) {
+        String m = allMessages(e);
+        return m.contains("503") || m.contains("unavailable") || m.contains("overloaded");
+    }
+
+    /** A message that tells the user what is actually wrong, instead of one generic line for every failure. */
+    public static String friendlyError(Throwable e) {
+        String m = allMessages(e);
+        if (isRateLimited(e)) return "I've reached Gemini's usage limit for the moment. Give it a minute and ask me again. Your ideas are all safe.";
+        if (isOverloaded(e)) return "Gemini is very busy right now. Let's try again in a moment.";
+        if (m.contains("api key") || m.contains("401") || m.contains("403") || m.contains("permission_denied") || m.contains("unauthenticated"))
+            return "I can't reach Gemini with the current API key. Check GEMINI_API_KEY (or gemini.api.key) and restart the app.";
+        if (m.contains("404") || m.contains("not found") || m.contains("not supported"))
+            return "Gemini doesn't recognise the model name in the settings. Check gemini.model in application.properties.";
+        return "Something went wrong on my side. The server log has the details.";
+    }
+
+    /** True if the message might be asking for one of Psy's actions (so the router model is worth a call). */
+    public static boolean mayBeRequest(String message) {
+        String m = message.toLowerCase(Locale.ROOT);
+        for (String w : ACTION_WORDS) if (m.contains(w)) return true;
+        return false;
     }
 
     // ------------------------------------------------------------------ helpers
@@ -112,6 +180,9 @@ public class GeminiService {
 
     /** Decides whether the user's latest message explicitly asks for one of Psy's actions. */
     public Intent route(String message, List<Turn> history, List<String> spaceNames, String currentSpace) {
+        // Plain conversation never needs the router: skip the extra call.
+        if (!mayBeRequest(message)) return new Intent("CHAT", List.of());
+
         String reply = call("""
                 You are a router for a thinking app. Decide whether the user's LATEST message explicitly asks for one of the actions below.
                 Reply with EXACTLY one line and nothing else, using one of these forms:
@@ -122,6 +193,11 @@ public class GeminiService {
                 PERSPECTIVE | <the viewpoint requested> | <space name, or empty for the current space>
                 MERGE | <first space name> | <second space name> | <name for the new space, or empty>
                 HISTORY | <title or key words of the thought>
+                SEARCH | <what to look for, in the user's own words>
+                PATTERNS
+                PROMPTS | <space name, or empty for the current space>
+                BRIDGES | <first space name, or empty for the current space> | <second space name, or empty for all other spaces>
+                SNAPSHOT | <short name for the snapshot, or empty>
 
                 Meaning:
                 LINKS = find, suggest or discover relationships/connections between thoughts.
@@ -130,6 +206,11 @@ public class GeminiService {
                 PERSPECTIVE = look at ideas through a specific viewpoint (skeptic, investor, child, ...).
                 MERGE = combine two idea spaces into a new one.
                 HISTORY = how a thought has developed or changed over time.
+                SEARCH = find thoughts by meaning across all idea spaces ("where did I write about...", "find my thoughts on...").
+                PATTERNS = analyze the user's own thinking habits and patterns across everything they have written.
+                PROMPTS = generate questions or exploration prompts to help the user think further.
+                BRIDGES = find connections between idea spaces that seem unrelated.
+                SNAPSHOT = save a snapshot of the current idea space's graph.
                 If the user is just chatting, sharing an idea, asking a general question, or is not clearly asking for one of these, answer CHAT.
 
                 Current space: %s
@@ -273,15 +354,133 @@ public class GeminiService {
         String where = spaceName == null
                 ? "The user is on the home page and has no space open."
                 : "The user has the idea space \"" + spaceName + "\" open. Its thoughts, for background only:\n" + listThoughts(context, 40);
-        return call("""
+        String reply = call("""
                 %s
                 %s
                 Only use the background if the user's message is about their thoughts. Do not summarize or analyze it unprompted.
+                Hold a warm, natural conversation: respond to what they actually said, encourage them, and when it fits
+                invite them to write a new idea of their own. Do not offer to do tasks unless they ask.
                 Keep it under 120 words.
 
                 Conversation so far:
                 %s
                 User: %s
                 """.formatted(PSY, where, transcript(history), message));
+        return reply.isBlank() ? "I'm here and listening. What's on your mind?" : reply;
+    }
+
+    // ------------------------------------------------------------------ v3: semantic search
+
+    /**
+     * Finds thoughts by meaning. Gemini is shown a compact list of the user's thoughts and picks the ones that
+     * match the query, even when the words differ. Capped to the candidates passed in, so it suits a personal
+     * collection; a vector index would be the next step for very large ones.
+     */
+    public List<SearchHit> search(String query, List<Thought> pool, Map<Long, String> spaceNames) {
+        StringBuilder list = new StringBuilder();
+        for (Thought t : pool) {
+            list.append('[').append(t.getId()).append("] (").append(spaceNames.getOrDefault(t.getSpaceId(), "?")).append(") ");
+            if (t.getTitle() != null && !t.getTitle().isBlank()) list.append(t.getTitle()).append(": ");
+            list.append(clip(t.getText(), 220).replace('\n', ' ')).append('\n');
+        }
+        String reply = call("""
+                Find the thoughts below that are most relevant in MEANING to the search, even if the wording differs.
+                Return at most 8, best first, one per line in EXACTLY this format and nothing else:
+                <id> | <reason in at most 10 words>
+                If nothing is relevant, return the single word NONE.
+
+                Search: %s
+
+                Thoughts:
+                %s
+                """.formatted(query, list));
+
+        List<SearchHit> hits = new ArrayList<>();
+        Set<Long> valid = new java.util.HashSet<>();
+        pool.forEach(t -> valid.add(t.getId()));
+        for (String line : reply.split("\\R")) {
+            Matcher m = CATEGORY_LINE.matcher(line.trim().replaceAll("^\\[|\\]", ""));
+            if (m.matches()) {
+                Long id = Long.valueOf(m.group(1));
+                if (valid.contains(id) && hits.stream().noneMatch(h -> h.thoughtId().equals(id))) {
+                    hits.add(new SearchHit(id, clip(m.group(2).trim(), 100)));
+                }
+            }
+        }
+        return hits;
+    }
+
+    // ------------------------------------------------------------------ v3: thinking patterns
+
+    /** Gentle, non-judgmental reflection on how the user thinks, from numbers computed on the server. */
+    public String thinkingPatterns(String stats, List<Thought> sample, List<Turn> history, String message) {
+        return call("""
+                %s
+                The user asked about their own thinking patterns. Below are facts counted from everything they have written,
+                then a sample of their recent thoughts.
+                Share three observations that are clearly supported by the facts (for example what they return to,
+                how they structure ideas, how often they revisit or revise). Be warm and curious, never judgmental,
+                and do not diagnose or make claims about their personality or mental health. Say when something is
+                only a hint because there is little data. End with one question that invites them to reflect.
+                Use under 220 words.
+
+                FACTS:
+                %s
+                SAMPLE:
+                %s
+                Conversation so far:
+                %s
+                User's request: %s
+                """.formatted(PSY, stats, listThoughts(sample, 30), transcript(history), message));
+    }
+
+    // ------------------------------------------------------------------ v3: questions and exploration prompts
+
+    /** Open questions and exploration prompts. With no thoughts to go on, it offers gentle starter prompts. */
+    public String explorationPrompts(String spaceName, List<Thought> thoughts, String focus) {
+        String basis = thoughts.isEmpty()
+                ? "The user has no thoughts yet, so offer five gentle starter prompts that help them begin writing their own ideas."
+                : "Their idea space \"" + spaceName + "\" has these thoughts:\n" + listThoughts(thoughts, 40);
+        return call("""
+                %s
+                The user asked for questions or exploration prompts. %s
+                %s
+                Write exactly 5 numbered open-ended questions or prompts, each under 25 words and each taking a different angle:
+                go deeper, challenge an assumption, connect to real life, notice something missing, and a small next step.
+                Refer to their own words where you can. Do not answer the questions yourself.
+                """.formatted(PSY, basis, focus == null || focus.isBlank() ? "" : "Their request: " + focus));
+    }
+
+    // ------------------------------------------------------------------ v3: bridges between unrelated spaces
+
+    /** Pairs a thought in space A with a thought in another space when they genuinely speak to each other. */
+    public List<Bridge> bridges(String spaceAName, List<Thought> a, List<Thought> others, Map<Long, String> spaceNames) {
+        StringBuilder bl = new StringBuilder();
+        for (Thought t : others) {
+            bl.append('[').append(t.getId()).append("] (").append(spaceNames.getOrDefault(t.getSpaceId(), "?")).append(") ");
+            if (t.getTitle() != null && !t.getTitle().isBlank()) bl.append(t.getTitle()).append(": ");
+            bl.append(clip(t.getText(), 200).replace('\n', ' ')).append('\n');
+        }
+        String reply = call("""
+                These idea spaces seem unrelated, but their thoughts may speak to each other.
+                Group A is the space "%s". Group B is thoughts from the user's other spaces.
+                Find up to 6 genuine, non-obvious connections, each pairing ONE thought from A with ONE thought from B.
+                Output one per line in EXACTLY this format and nothing else:
+                <A id>-<B id> | <what links them, at most 12 words>
+                Use only the ids given. Skip weak connections. If there are none, return the single word NONE.
+
+                GROUP A:
+                %s
+                GROUP B:
+                %s
+                """.formatted(spaceAName, listThoughts(a, 40), bl));
+
+        List<Bridge> out = new ArrayList<>();
+        Pattern p = Pattern.compile("(\\d+)\\s*-\\s*(\\d+)\\s*\\|\\s*(.+)");
+        for (String line : reply.split("\\R")) {
+            Matcher m = p.matcher(line.trim());
+            if (m.matches()) out.add(new Bridge(Long.valueOf(m.group(1)), Long.valueOf(m.group(2)), clip(m.group(3).trim(), 140)));
+        }
+        return out;
     }
 }
