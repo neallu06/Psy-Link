@@ -1,4 +1,4 @@
-package com.fallhack.psy_link.model;
+package com.fallhack.psy_.model;
 
 import jakarta.persistence.*;
 
@@ -29,6 +29,9 @@ public class Thought {
     private Double x;
     private Double y;
 
+    /** Nullable wrapper on purpose: existing rows from v1 have no value and the column can be added safely. */
+    private Boolean pinned = false;
+
     public Thought() {}
 
     public Long getId() { return id; }
@@ -48,4 +51,6 @@ public class Thought {
     public void setX(Double x) { this.x = x; }
     public Double getY() { return y; }
     public void setY(Double y) { this.y = y; }
+    public boolean isPinned() { return Boolean.TRUE.equals(pinned); }
+    public void setPinned(boolean pinned) { this.pinned = pinned; }
 }

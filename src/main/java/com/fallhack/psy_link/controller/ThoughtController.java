@@ -5,10 +5,12 @@ import com.fallhack.psy_link.model.IdeaSpace;
 import com.fallhack.psy_link.model.LinkType;
 import com.fallhack.psy_link.model.Thought;
 import com.fallhack.psy_link.model.ThoughtLink;
+import com.fallhack.psy_link.model.ThoughtVersion;
 import com.fallhack.psy_link.repo.IdeaSpaceRepository;
 import com.fallhack.psy_link.repo.LinkTypeRepository;
 import com.fallhack.psy_link.repo.ThoughtLinkRepository;
 import com.fallhack.psy_link.repo.ThoughtRepository;
+import com.fallhack.psy_link.repo.ThoughtVersionRepository;
 import com.fallhack.psy_link.repo.UserRepository;
 import com.fallhack.psy_link.service.GeminiService;
 import org.springframework.http.HttpStatus;
@@ -19,38 +21,42 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.security.Principal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
 public class ThoughtController {
 
+    public record SpaceView(Long id, String name, String description, long thoughtCount) {}
     public record NewSpace(String name, String description) {}
     public record NewThought(String text, Long spaceId) {}
-    public record ThoughtUpdate(String title, String text, Double x, Double y) {}
-    public record NewLink(Long fromId, Long toId, Long typeId) {}
+    public record ThoughtUpdate(String title, String text, String category, Double x, Double y, Boolean pinned) {}
+    public record NewLink(Long fromId, Long toId, Long typeId, String label, Boolean aiSuggested) {}
     public record LinkUpdate(Long typeId) {}
     public record TypeUpdate(String color, Boolean dotted) {}
-    public record Question(String question, List<Long> thoughtIds) {}
+    public record NewType(String name, String color, Boolean dotted) {}
 
     private final UserRepository users;
     private final IdeaSpaceRepository spaces;
     private final ThoughtRepository thoughts;
     private final ThoughtLinkRepository links;
     private final LinkTypeRepository types;
+    private final ThoughtVersionRepository versions;
     private final GeminiService gemini;
 
     public ThoughtController(UserRepository users, IdeaSpaceRepository spaces, ThoughtRepository thoughts,
-                             ThoughtLinkRepository links, LinkTypeRepository types, GeminiService gemini) {
+                             ThoughtLinkRepository links, LinkTypeRepository types,
+                             ThoughtVersionRepository versions, GeminiService gemini) {
         this.users = users;
         this.spaces = spaces;
         this.thoughts = thoughts;
         this.links = links;
         this.types = types;
+        this.versions = versions;
         this.gemini = gemini;
     }
 
@@ -79,19 +85,32 @@ public class ThoughtController {
 
     // ---------- Idea Spaces ----------
 
+    private SpaceView view(IdeaSpace s) {
+        return new SpaceView(s.getId(), s.getName(), s.getDescription(), thoughts.countBySpaceId(s.getId()));
+    }
+
     @GetMapping("/spaces")
-    public List<IdeaSpace> listSpaces(Principal p) {
+    public List<SpaceView> listSpaces(Principal p) {
         AppUser u = me(p);
         List<IdeaSpace> list = spaces.findByOwnerId(u.getId());
         if (list.isEmpty()) {
             list = new ArrayList<>(List.of(spaces.save(new IdeaSpace(u.getId(), "My Thoughts", "Default space"))));
         }
-        return list;
+        return list.stream().map(this::view).toList();
     }
 
     @PostMapping("/spaces")
-    public IdeaSpace createSpace(Principal p, @RequestBody NewSpace body) {
-        return spaces.save(new IdeaSpace(me(p).getId(), body.name(), body.description()));
+    public SpaceView createSpace(Principal p, @RequestBody NewSpace body) {
+        String name = body.name() == null || body.name().isBlank() ? "Untitled space" : body.name().trim();
+        return view(spaces.save(new IdeaSpace(me(p).getId(), clip(name, 60),
+                body.description() == null ? "" : body.description())));
+    }
+
+    @PutMapping("/spaces/{id}")
+    public SpaceView renameSpace(Principal p, @PathVariable Long id, @RequestBody NewSpace body) {
+        IdeaSpace s = space(id, me(p));
+        if (body.name() != null && !body.name().isBlank()) s.setName(clip(body.name().trim(), 60));
+        return view(spaces.save(s));
     }
 
     @DeleteMapping("/spaces/{id}")
@@ -103,6 +122,10 @@ public class ThoughtController {
         }
         spaces.delete(s);
         return ResponseEntity.noContent().build();
+    }
+
+    private static String clip(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     // ---------- Thoughts ----------
@@ -129,7 +152,9 @@ public class ThoughtController {
             t.setTitle(fallbackTitle(body.text()));
             t.setCategory("Uncategorized");
         }
-        return thoughts.save(t);
+        Thought saved = thoughts.save(t);
+        versions.save(new ThoughtVersion(saved.getId(), saved.getTitle(), saved.getText(), saved.getCategory(), "Created"));
+        return saved;
     }
 
     private static String fallbackTitle(String text) {
@@ -141,11 +166,31 @@ public class ThoughtController {
     @PutMapping("/thoughts/{id}")
     public Thought updateThought(Principal p, @PathVariable Long id, @RequestBody ThoughtUpdate body) {
         Thought t = thought(id, me(p));
-        if (body.title() != null) t.setTitle(body.title());
-        if (body.text() != null) t.setText(body.text());
+        String oldTitle = t.getTitle(), oldText = t.getText(), oldCategory = t.getCategory();
+
+        boolean changed = false;
+        if (body.title() != null && !body.title().equals(t.getTitle())) { t.setTitle(body.title()); changed = true; }
+        if (body.text() != null && !body.text().equals(t.getText())) { t.setText(body.text()); changed = true; }
+        if (body.category() != null) t.setCategory(body.category());
         if (body.x() != null) t.setX(body.x());
         if (body.y() != null) t.setY(body.y());
-        return thoughts.save(t);
+        if (body.pinned() != null) t.setPinned(body.pinned());
+
+        // History: remember the original wording the first time a thought is edited, then every later edit.
+        if (changed && versions.countByThoughtId(id) == 0) {
+            versions.save(new ThoughtVersion(id, oldTitle, oldText, oldCategory, "Original"));
+        }
+        Thought saved = thoughts.save(t);
+        if (changed) {
+            versions.save(new ThoughtVersion(id, saved.getTitle(), saved.getText(), saved.getCategory(), "Edited"));
+        }
+        return saved;
+    }
+
+    @GetMapping("/thoughts/{id}/history")
+    public List<ThoughtVersion> history(Principal p, @PathVariable Long id) {
+        thought(id, me(p));
+        return versions.findByThoughtIdOrderByIdDesc(id);
     }
 
     @DeleteMapping("/thoughts/{id}")
@@ -158,6 +203,7 @@ public class ThoughtController {
 
     private void deleteThoughtAndLinks(Long id) {
         links.deleteAll(links.findByFromIdOrToId(id, id));
+        versions.deleteAll(versions.findByThoughtIdOrderByIdDesc(id));
         thoughts.deleteById(id);
     }
 
@@ -166,6 +212,18 @@ public class ThoughtController {
     @GetMapping("/types")
     public List<LinkType> listTypes(Principal p) {
         return types.findByOwnerId(me(p).getId());
+    }
+
+    @PostMapping("/types")
+    public ResponseEntity<?> createType(Principal p, @RequestBody NewType body) {
+        String name = body.name() == null ? "" : body.name().trim();
+        if (name.isEmpty() || name.length() > 40) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Give the connection a name (up to 40 characters)."));
+        }
+        String color = body.color() != null && body.color().matches("#[0-9a-fA-F]{6}") ? body.color() : "#8a7bff";
+        String key = "custom_" + UUID.randomUUID().toString().substring(0, 8);
+        LinkType t = new LinkType(me(p).getId(), key, name, "Custom connection.", color, Boolean.TRUE.equals(body.dotted()));
+        return ResponseEntity.ok(types.save(t));
     }
 
     @PutMapping("/types/{id}")
@@ -196,7 +254,9 @@ public class ThoughtController {
         thought(body.fromId(), u);
         thought(body.toId(), u);
         type(body.typeId(), u);
-        return links.save(new ThoughtLink(body.fromId(), body.toId(), body.typeId(), null, false));
+        String label = body.label() == null || body.label().isBlank() ? null : clip(body.label().trim(), 200);
+        return links.save(new ThoughtLink(body.fromId(), body.toId(), body.typeId(), label,
+                Boolean.TRUE.equals(body.aiSuggested())));
     }
 
     @PutMapping("/links/{id}")
@@ -218,50 +278,5 @@ public class ThoughtController {
         ThoughtLink l = links.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         thought(l.getFromId(), u);
         return l;
-    }
-
-    /** AI proposes typed connections for a space; saved flagged aiSuggested, and the user can change or delete them. */
-    @PostMapping("/spaces/{id}/suggest-links")
-    public List<ThoughtLink> suggestLinks(Principal p, @PathVariable Long id) {
-        AppUser u = me(p);
-        IdeaSpace s = space(id, u);
-        List<Thought> inSpace = thoughts.findBySpaceId(s.getId());
-        Set<Long> valid = new HashSet<>();
-        inSpace.forEach(t -> valid.add(t.getId()));
-
-        Map<String, Long> typeIdByKey = new HashMap<>();
-        types.findByOwnerId(u.getId()).forEach(t -> typeIdByKey.put(t.getKey(), t.getId()));
-
-        List<ThoughtLink> existing = linksInSpace(s.getId());
-        List<ThoughtLink> created = new ArrayList<>();
-        for (GeminiService.SuggestedLink sl : gemini.suggestLinks(inSpace)) {
-            if (!valid.contains(sl.fromId()) || !valid.contains(sl.toId()) || sl.fromId().equals(sl.toId())) continue;
-            boolean dup = existing.stream().anyMatch(l ->
-                    (l.getFromId().equals(sl.fromId()) && l.getToId().equals(sl.toId())) ||
-                    (l.getFromId().equals(sl.toId()) && l.getToId().equals(sl.fromId())));
-            if (dup) continue;
-            Long typeId = typeIdByKey.getOrDefault(sl.typeKey(), typeIdByKey.get("related"));
-            ThoughtLink saved = links.save(new ThoughtLink(sl.fromId(), sl.toId(), typeId, sl.reason(), true));
-            existing.add(saved);
-            created.add(saved);
-        }
-        return created;
-    }
-
-    // ---------- Gemini chat ----------
-
-    @PostMapping("/ask")
-    public Map<String, String> ask(Principal p, @RequestBody Question body) {
-        AppUser u = me(p);
-        List<Thought> context = new ArrayList<>();
-        if (body.thoughtIds() != null) {
-            for (Thought t : thoughts.findAllById(body.thoughtIds())) {
-                try {
-                    thought(t.getId(), u);   // skip anything that isn't the user's
-                    context.add(t);
-                } catch (ResponseStatusException ignored) { }
-            }
-        }
-        return Map.of("answer", gemini.ask(body.question(), context));
     }
 }

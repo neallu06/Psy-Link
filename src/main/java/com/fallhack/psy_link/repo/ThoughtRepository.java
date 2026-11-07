@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ThoughtRepository extends JpaRepository<Thought, Long> {
     List<Thought> findBySpaceId(Long spaceId);
+    long countBySpaceId(Long spaceId);
 }
