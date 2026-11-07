@@ -560,7 +560,7 @@ $('psyInput').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isCo
 
 function greetPsy() {
   if (psyGreeted) return; psyGreeted = true;
-  addMsg('ai', "Hi, I'm Psy. This is your space, so I'll follow your lead. Write down whatever is on your mind, however rough, and when you want a hand I can find connections, suggest categories, look at a space from a new angle, trace how a thought has changed, or merge two spaces. Just ask.");
+  addMsg('ai', "Hi, I'm Psy! What are you thinking about today? Walk me through your amazing ideas and let's start explore them together! (^-^)/");
 }
 
 /* ---------------- Boot ---------------- */

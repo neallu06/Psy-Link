@@ -93,7 +93,7 @@ public class PsyController {
                 default -> doChat(current, msg, history);
             };
         } catch (Exception e) {
-            return plain("I couldn't reach my thinking cap just now. Please try again in a moment.");
+            return plain("Uh-oh, my thoughts got interrupted. Let's try again?");
         }
     }
 

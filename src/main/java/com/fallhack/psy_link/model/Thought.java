@@ -1,4 +1,4 @@
-package com.fallhack.psy_.model;
+package com.fallhack.psy_link.model;
 
 import jakarta.persistence.*;
 

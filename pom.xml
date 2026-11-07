@@ -9,7 +9,7 @@
 		<relativePath/>
 	</parent>
 	<groupId>com.fallhack</groupId>
-	<artifactId>psy-space</artifactId>
+	<artifactId>psy-link</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>psy-space</name>
 	<description>ThoughtSpace - AI-powered thought network</description>
