@@ -57,10 +57,25 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("username", user.getUsername()));
     }
 
+    public record MeView(String username, String email, String theme, Long lastSpaceId) {}
+    public record LastSpace(Long spaceId) {}
+
     @GetMapping("/me")
-    public Map<String, String> me(Principal principal) {
+    public MeView me(Principal principal) {
         AppUser u = users.findByUsername(principal.getName()).orElseThrow();
-        return Map.of("username", u.getUsername(), "email", u.getEmail(), "theme", u.getTheme());
+        return new MeView(u.getUsername(), u.getEmail(), u.getTheme(), u.getLastSpaceId());
+    }
+
+    /** Remember which idea space was opened last, so the next login lands there. */
+    @PutMapping("/me/last-space")
+    public ResponseEntity<Void> setLastSpace(Principal principal, @RequestBody LastSpace body) {
+        AppUser u = users.findByUsername(principal.getName()).orElseThrow();
+        boolean mine = body.spaceId() != null && spaces.findById(body.spaceId())
+                .filter(s -> u.getId().equals(s.getOwnerId())).isPresent();
+        if (!mine) return ResponseEntity.notFound().build();
+        u.setLastSpaceId(body.spaceId());
+        users.save(u);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/me/theme")

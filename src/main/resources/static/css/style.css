@@ -1,11 +1,11 @@
 /* ---------- Theme tokens: blue + purple accents, black / soft white backgrounds ---------- */
 html[data-theme=dark] {
-  --main:#000000; --panel:#14161f; --line:#272b42; --text:#e9ebf7; --muted:#8f96b8; --input:#0b0c14;
+  --main:#000000; --panel:#14161f; --side:#1a1d2c; --line:#2b3050; --text:#e9ebf7; --muted:#8f96b8; --input:#0b0c14;
   --accent:#7c8cff; --accent2:#b07cff; --on-accent:#ffffff; --warn-bg:#000000; --shadow:rgba(0,0,0,.6);
   --slider:linear-gradient(135deg,#3b46c9,#7a3fd1);
 }
 html[data-theme=light] {
-  --main:#f1f2f8; --panel:#fbfbfe; --line:#dcdff0; --text:#1b1e33; --muted:#667085; --input:#ffffff;
+  --main:#f1f2f8; --panel:#fbfbfe; --side:#fbfbfe; --line:#dcdff0; --text:#1b1e33; --muted:#667085; --input:#ffffff;
   --accent:#5568ff; --accent2:#9a5cf5; --on-accent:#ffffff; --warn-bg:#ffffff; --shadow:rgba(40,40,90,.25);
   --slider:linear-gradient(135deg,#a9b6ff,#d6b8ff);
 }
@@ -15,14 +15,15 @@ html[data-theme=light] {
 *::-webkit-scrollbar { width:10px; height:10px; }
 *::-webkit-scrollbar-track { background:transparent; }
 *::-webkit-scrollbar-thumb { background:var(--line); border-radius:10px; border:2px solid transparent; background-clip:padding-box; }
-#sideScroll::-webkit-scrollbar-track { background:var(--panel); }
+#sideScroll::-webkit-scrollbar-track { background:var(--side); }
 
 body { margin:0; height:100vh; background:var(--main); color:var(--text); font-family:system-ui,sans-serif; overflow:hidden; }
 #app { height:100vh; position:relative; }
 h1 { font-size:18px; margin:0; }
 .brand { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:800; letter-spacing:.01em; }
 .brand.big { font-size:34px; }
-h2, summary { font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 8px; }
+/* One style for every sidebar section title: New thought, Pins, Recents, Connections. */
+.sec-title { font-size:11px; font-weight:700; line-height:1.2; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 8px; font-family:inherit; }
 
 input[type=text], input[type=password], input[type=email], textarea, select {
   width:100%; background:var(--input); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; }
@@ -80,36 +81,60 @@ button:disabled { opacity:.5; cursor:wait; }
 
 /* ---------- Workspace ---------- */
 #workspace { display:none; height:100vh; }
-#sidebar { width:320px; flex:0 0 320px; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; transition:margin-left .2s; }
+#sidebar { width:320px; flex:0 0 320px; height:100vh; background:var(--side); border-right:1px solid var(--line); display:flex; flex-direction:column; transition:margin-left .2s; }
 #sidebar.collapsed { margin-left:-320px; }
-#sideScroll { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:16px; }
+#sideHead { flex:none; padding:16px 16px 10px; display:flex; flex-direction:column; gap:6px; }
+#sideScroll { flex:1; min-height:0; overflow-y:auto; padding:6px 16px 16px; display:flex; flex-direction:column; gap:18px; }
+/* New thought stays put at the bottom of the sidebar while everything above it scrolls. */
+#newThought { flex:none; padding:12px 16px 16px; border-top:1px solid var(--line); background:var(--side); display:flex; flex-direction:column; }
+#newThought textarea { min-height:70px; max-height:160px; }
+#newThought button { margin-top:6px; width:100%; }
 .sidehead { display:flex; align-items:center; gap:10px; }
 .sidehead button { padding:4px 8px; }
-.spacename { font-size:13px; color:var(--muted); margin-top:-8px; }
+.spacename { font-size:13px; color:var(--muted); }
 
-details summary { cursor:pointer; user-select:none; list-style:none; display:flex; gap:6px; align-items:center; margin:0; }
+details summary { cursor:pointer; user-select:none; list-style:none; display:flex; gap:6px; align-items:center; }
 details summary::-webkit-details-marker { display:none; }
 details summary::before { content:'▸'; color:var(--accent); font-size:12px; }
 details[open] summary::before { content:'▾'; }
-#pinList { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-.pinitem { padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; cursor:pointer; background:var(--input); }
-.pinitem:hover { border-color:var(--accent); }
+details > summary.sec-title { margin:0; }
+details[open] > summary.sec-title { margin-bottom:8px; }
+#pinList, #recentList { display:flex; flex-direction:column; gap:4px; }
+.pinitem, .recentitem { padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; cursor:pointer; background:var(--input); }
+.pinitem:hover, .recentitem:hover { border-color:var(--accent); }
+.recentitem .rsp { display:block; font-size:11px; color:var(--muted); margin-top:1px; }
+.seg { display:flex; gap:4px; margin-bottom:8px; }
+.seg button { flex:1; padding:4px 8px; font-size:12px; background:transparent; color:var(--muted); border:1px solid var(--line); }
+.seg button.on { background:var(--grad); color:#fff; border-color:transparent; }
 
 .type { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid transparent; border-radius:8px; cursor:pointer; }
 .type.active { border-color:var(--accent); }
 .type .name { flex:1; font-size:14px; }
 input[type=color] { width:26px; height:26px; padding:0; border:0; background:none; cursor:pointer; flex:none; }
 .type label { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px; cursor:pointer; }
-.swatch { width:26px; height:0; border-top:3px solid; }
+/* Line sample. Dotted uses square, hard-edged dots (not the browser's round ones). */
+.swatch { width:26px; height:3px; background:var(--c); flex:none; }
+.swatch.dotted { background:repeating-linear-gradient(90deg, var(--c) 0 3px, transparent 3px 6px); }
 #newType { display:flex; flex-direction:column; gap:6px; margin:8px 0; padding-top:8px; border-top:1px solid var(--line); }
 
 main { flex:1; position:relative; background:var(--main); min-width:0; }
 #network { position:absolute; inset:0; }
-#toggleSide { position:absolute; top:12px; left:12px; z-index:5; background:var(--panel); color:var(--text); border:1px solid var(--line); padding:6px 10px; }
+#toggleSide, #snapBtn { position:absolute; top:12px; z-index:5; background:var(--side); color:var(--text); border:1px solid var(--line); padding:6px 10px; }
+#toggleSide { left:12px; }
+#snapBtn { left:58px; font-weight:500; }
+#snapBtn:hover, #toggleSide:hover { border-color:var(--accent); }
 
-#hint, #edgebar { position:absolute; z-index:5; left:50%; transform:translateX(-50%); background:var(--panel); border:1px solid var(--line);
-                  border-radius:10px; padding:8px 12px; font-size:13px; display:none; align-items:center; gap:8px; }
-#hint { top:12px; } #edgebar { bottom:18px; }
+#hint { position:absolute; z-index:5; top:12px; left:50%; transform:translateX(-50%); background:var(--side); border:1px solid var(--line);
+        border-radius:10px; padding:8px 12px; font-size:13px; display:none; align-items:center; gap:8px; }
+
+/* Bottom dock: connection box (left) and zoom (right) in one row. Its right edge sits left of Psy
+   (minimized pill, or the open chat), so nothing in it can be covered by the chat. */
+#dock { position:absolute; z-index:5; left:16px; right:150px; bottom:16px; display:flex; flex-wrap:wrap; align-items:flex-end;
+        justify-content:flex-end; gap:10px; pointer-events:none; transition:right .2s; }
+body.psy-open #dock { right:432px; }
+#dock > * { pointer-events:auto; }
+#edgebar { display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-right:auto; background:var(--side); border:1px solid var(--line);
+           border-radius:10px; padding:8px 12px; font-size:13px; }
 #edgebar select { width:auto; }
 
 /* Pin on hover (top-right corner of a thought) */
@@ -120,17 +145,23 @@ main { flex:1; position:relative; background:var(--main); min-width:0; }
 #pinHover.on svg path, #mPin.pinned svg path { fill:#ff3b52; }
 #mPin svg { vertical-align:-3px; margin-right:4px; }
 
-/* Zoom: bottom right, slides left of Psy */
-#zoom { position:absolute; z-index:5; bottom:16px; right:160px; display:flex; align-items:center; gap:6px; padding:5px 8px;
-        background:var(--panel); border:1px solid var(--line); border-radius:999px; transition:right .2s; }
-body.psy-open #zoom { right:430px; }
-#zoom button { padding:2px 9px; border-radius:50%; font-size:16px; line-height:1.2; }
+/* Zoom: same color as the sidebar */
+#zoom { display:flex; align-items:center; gap:6px; padding:5px 8px; margin-left:auto;
+        background:var(--side); border:1px solid var(--line); border-radius:999px; }
+#zoom button { padding:2px 9px; border-radius:50%; font-size:16px; line-height:1.2; background:var(--side); }
 #zoom input[type=range] { width:110px; accent-color:var(--accent); }
 #zPct { font-size:12px; color:var(--muted); min-width:38px; text-align:right; }
 
 /* ---------- Modals ---------- */
-#modalWrap, #warnWrap { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
-#modalWrap { z-index:40; }
+#modalWrap, #snapWrap, #warnWrap { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+#modalWrap, #snapWrap { z-index:40; }
+#snap { width:min(520px,92vw); max-height:88vh; display:flex; flex-direction:column; gap:10px; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; }
+#snapList { overflow-y:auto; display:flex; flex-direction:column; gap:8px; min-height:60px; }
+.snaprow { display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--input); }
+.snaprow .sinfo { flex:1; min-width:0; }
+.snaprow .sname { font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.snaprow .smeta { font-size:11px; color:var(--muted); }
+.snaprow button { padding:3px 9px; font-size:12px; }
 #warnWrap { z-index:200; }
 #modal { width:min(560px,92vw); max-height:90vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; display:flex; flex-direction:column; gap:10px; }
 #modal input[type=text]#mTitle { font-size:18px; font-weight:600; }
