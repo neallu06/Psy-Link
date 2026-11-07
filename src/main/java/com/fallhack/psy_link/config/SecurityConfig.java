@@ -1,6 +1,6 @@
-package com.fallhack.psy_space.config;
+package com.fallhack.psy_link.config;
 
-import com.fallhack.psy_space.repo.UserRepository;
+import com.fallhack.psy_link.repo.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -37,7 +37,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/index.html", "/favicon.ico", "/api/auth/register").permitAll()
+                .requestMatchers("/", "/index.html", "/favicon.ico", "/css/**", "/js/**", "/api/auth/register").permitAll()
                 .anyRequest().authenticated())
             .formLogin(form -> form
                 .loginProcessingUrl("/api/auth/login")
