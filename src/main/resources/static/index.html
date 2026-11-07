@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThoughtSpace</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- Login / account creation -->
+<div id="auth">
+  <form id="authCard">
+    <h1>ThoughtSpace</h1>
+    <div id="authTabs"><button type="button" id="tabLogin">Log in</button><button type="button" class="ghost" id="tabRegister">Create account</button></div>
+    <input type="email" id="aEmail" placeholder="Email (Google or GitHub)" style="display:none" autocomplete="email">
+    <input type="text" id="aUser" placeholder="Username" autocomplete="username">
+    <input type="password" id="aPass" placeholder="Password" autocomplete="current-password">
+    <div id="authErr"></div>
+    <button type="submit" id="authGo">Log in</button>
+    <div class="muted">Passwords are stored as one-way hashes, never as plain text.</div>
+  </form>
+</div>
+
+<aside id="sidebar">
+  <div id="sideScroll">
+    <h1>ThoughtSpace</h1>
+
+    <section>
+      <h2>Idea Space</h2>
+      <div class="row"><select id="spaceSelect"></select><button class="ghost" id="delSpace">Delete</button></div>
+      <div class="row" style="margin-top:6px"><input type="text" id="newSpaceName" placeholder="New space name"><button id="addSpace">Add</button></div>
+    </section>
+
+    <section>
+      <h2>New thought</h2>
+      <textarea id="thoughtText" placeholder="What's on your mind?"></textarea>
+      <button id="addThought" style="margin-top:6px;width:100%">Save &amp; add to space</button>
+    </section>
+
+    <section>
+      <h2>Connections</h2>
+      <div id="types"></div>
+      <p class="muted">Select a type, then open a thought and press “Connect to…”. Change the color or switch solid/dotted any time.</p>
+      <button class="ghost" id="suggest" style="width:100%">✨ Suggest connections with AI</button>
+    </section>
+  </div>
+
+  <div id="chat" class="collapsed">
+    <div id="chatHead"><span>✨ Gemini chat</span><span id="chatCaret">▲</span></div>
+    <div id="chatBody">
+      <div id="chatLog"></div>
+      <div class="row"><input type="text" id="chatInput" placeholder="Ask about your thoughts…"><button id="chatSend">Send</button></div>
+      <div class="muted" id="chatCtx"></div>
+    </div>
+  </div>
+</aside>
+
+<main>
+  <button id="toggleSide" title="Show/hide sidebar">☰</button>
+  <div id="topbar">
+    <span id="uname"></span>
+    <button id="themeMoon" title="Dark mode">🌙</button>
+    <button id="themeSun" title="Light mode">☀️</button>
+    <button id="logout">Log out</button>
+  </div>
+  <div id="hint"></div>
+  <div id="edgebar">
+    <span class="muted">Connection</span><select id="edgeType"></select>
+    <button class="danger" id="edgeDel">Delete</button><button class="ghost" id="edgeClose">✕</button>
+  </div>
+  <div id="network"></div>
+</main>
+
+<div id="modalWrap">
+  <div id="modal">
+    <input type="text" id="mTitle" placeholder="Main topic">
+    <textarea id="mText" placeholder="Your thought"></textarea>
+    <div class="row">
+      <button id="mSave">Save</button>
+      <button class="ghost" id="mConnect">Connect to…</button>
+      <button class="danger" id="mDelete">Delete</button>
+      <button class="ghost" id="mClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
