@@ -1,6 +1,6 @@
-package com.fallhack.psy_space.service;
+package com.fallhack.psy_link.service;
 
-import com.fallhack.psy_space.model.Thought;
+import com.fallhack.psy_link.model.Thought;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
 import org.springframework.beans.factory.annotation.Value;

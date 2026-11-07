@@ -1,4 +1,4 @@
-package com.fallhack.psy_space.config;
+package com.fallhack.psy_link.config;
  
 import com.google.genai.Client;
 import org.springframework.beans.factory.annotation.Value;

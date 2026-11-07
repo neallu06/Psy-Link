@@ -1,6 +1,6 @@
-package com.fallhack.psy_space.repo;
+package com.fallhack.psy_link.repo;
 
-import com.fallhack.psy_space.model.Thought;
+import com.fallhack.psy_link.model.Thought;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

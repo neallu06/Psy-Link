@@ -1,11 +1,11 @@
-package com.fallhack.psy_space.controller;
+package com.fallhack.psy_link.controller;
 
-import com.fallhack.psy_space.model.AppUser;
-import com.fallhack.psy_space.model.IdeaSpace;
-import com.fallhack.psy_space.model.LinkType;
-import com.fallhack.psy_space.repo.IdeaSpaceRepository;
-import com.fallhack.psy_space.repo.LinkTypeRepository;
-import com.fallhack.psy_space.repo.UserRepository;
+import com.fallhack.psy_link.model.AppUser;
+import com.fallhack.psy_link.model.IdeaSpace;
+import com.fallhack.psy_link.model.LinkType;
+import com.fallhack.psy_link.repo.IdeaSpaceRepository;
+import com.fallhack.psy_link.repo.LinkTypeRepository;
+import com.fallhack.psy_link.repo.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;

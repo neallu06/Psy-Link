@@ -1,6 +1,6 @@
-package com.fallhack.psy_space.config;
+package com.fallhack.psy_link.config;
 
-import com.fallhack.psy_space.repo.UserRepository;
+import com.fallhack.psy_link.repo.UserRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
