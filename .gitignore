@@ -8,9 +8,6 @@ target/
 .env
 application.properties
 
-### data db ### 
-/data/thoughtspace.mv.db
-
 ### STS ###
 .apt_generated
 .classpath
@@ -38,3 +35,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### data db ### 
+data/
+data/thoughtspace.mv.db
