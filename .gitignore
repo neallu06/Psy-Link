@@ -9,7 +9,7 @@ target/
 application.properties
 
 ### data db ### 
-/data/
+/data/thoughtspace.mv.db
 
 ### STS ###
 .apt_generated
