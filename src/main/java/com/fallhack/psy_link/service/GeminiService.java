@@ -65,7 +65,7 @@ public class GeminiService {
     private final String fallbackModel;
 
     public GeminiService(Client client, @Value("${gemini.model}") String model,
-                         @Value("${gemini.fallback-model:gemini-2.5-flash-lite}") String fallbackModel) {
+                         @Value("${gemini.fallback-model:gemini-3.5-flash-lite}") String fallbackModel) {
         this.client = client;
         this.model = model;
         this.fallbackModel = fallbackModel;
@@ -108,13 +108,13 @@ public class GeminiService {
     /** A message that tells the user what is actually wrong, instead of one generic line for every failure. */
     public static String friendlyError(Throwable e) {
         String m = allMessages(e);
-        if (isRateLimited(e)) return "I've reached Gemini's usage limit for the moment. Give it a minute and ask me again. Your ideas are all safe.";
-        if (isOverloaded(e)) return "Gemini is very busy right now. Let's try again in a moment.";
+        if (isRateLimited(e)) return "I've reached my usage limit for the moment. Give me a minute and I will be back with your amazing ideas!";
+        if (isOverloaded(e)) return "My thoughts are overloaded right now. Let's try again in a moment..";
         if (m.contains("api key") || m.contains("401") || m.contains("403") || m.contains("permission_denied") || m.contains("unauthenticated"))
-            return "I can't reach Gemini with the current API key. Check GEMINI_API_KEY (or gemini.api.key) and restart the app.";
+            return "I can't reach with my thoughts right now. Let's take a small break? If it keeps happening, please contact the dev to help me.";
         if (m.contains("404") || m.contains("not found") || m.contains("not supported"))
-            return "Gemini doesn't recognise the model name in the settings. Check gemini.model in application.properties.";
-        return "Something went wrong on my side. The server log has the details.";
+            return "My thoughts aren't coming to me right now. Psy needs to rest and will be back soon to go over your ideas with you!";
+        return "Uh-oh, Psy is not feeling well right now. Please contact the dev to cure me.";
     }
 
     /** True if the message might be asking for one of Psy's actions (so the router model is worth a call). */
