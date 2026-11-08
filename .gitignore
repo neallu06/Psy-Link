@@ -9,7 +9,7 @@ target/
 application.properties
 
 ### data db ### 
-data/
+/data/
 
 ### STS ###
 .apt_generated
